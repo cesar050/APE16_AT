@@ -4,7 +4,8 @@ import Clasificacion from "./components/Clasificacion";
 import RolesGramaticales from "./components/RolesGramaticales";
 import TablaTokens from "./components/TablaTokens";
 import TablaDependencias from "./components/TablaDependencias";
-import { MdLabel, MdPerson, MdTextFields, MdAccountTree } from "react-icons/md";
+import ArbolSintactico from "./components/ArbolSintactico";
+import { MdLabel, MdPerson, MdTextFields, MdAccountTree, MdShare } from "react-icons/md";
 import "./App.css";
 
 /**
@@ -23,6 +24,7 @@ function App() {
     { id: "roles", label: "Roles Gramaticales", icon: <MdPerson /> },
     { id: "tokens", label: "Análisis Léxico", icon: <MdTextFields /> },
     { id: "dependencias", label: "Dependencias Sintácticas", icon: <MdAccountTree /> },
+    { id: "arbol", label: "Árbol Sintáctico", icon: <MdShare /> },
   ];
 
   /**
@@ -62,6 +64,8 @@ function App() {
         return <TablaTokens tokens={resultado.tokens} />;
       case "dependencias":
         return <TablaDependencias dependencias={resultado.dependencias} />;
+      case "arbol":
+        return <ArbolSintactico dependencias={resultado.dependencias} tokens={resultado.tokens} />;
       default:
         return null;
     }
