@@ -5,7 +5,8 @@ import RolesGramaticales from "./components/RolesGramaticales";
 import TablaTokens from "./components/TablaTokens";
 import TablaDependencias from "./components/TablaDependencias";
 import ArbolSintactico from "./components/ArbolSintactico";
-import { MdLabel, MdPerson, MdTextFields, MdAccountTree, MdShare } from "react-icons/md";
+import Comparativa from "./components/Comparativa";
+import { MdLabel, MdPerson, MdTextFields, MdAccountTree, MdShare, MdCompareArrows } from "react-icons/md";
 import "./App.css";
 
 /**
@@ -25,6 +26,7 @@ function App() {
     { id: "tokens", label: "Análisis Léxico", icon: <MdTextFields /> },
     { id: "dependencias", label: "Dependencias Sintácticas", icon: <MdAccountTree /> },
     { id: "arbol", label: "Árbol Sintáctico", icon: <MdShare /> },
+    { id: "comparativa", label: "Comparativa spaCy vs CoreNLP", icon: <MdCompareArrows /> },
   ];
 
   /**
@@ -51,6 +53,10 @@ function App() {
    * Renderiza el contenido de la tab activa.
    */
   const renderContenido = () => {
+    if (tabActiva === "comparativa") {
+      return <Comparativa />;
+    }
+
     if (!resultado) {
       return <div className="empty-state">Ingresa una oración y presiona Analizar.</div>;
     }
@@ -96,8 +102,8 @@ function App() {
           {TABS.map((tab) => (
             <div
               key={tab.id}
-              className={`nav-item ${tabActiva === tab.id ? "active" : ""} ${!resultado ? "disabled" : ""}`}
-              onClick={() => resultado && setTabActiva(tab.id)}
+              className={`nav-item ${tabActiva === tab.id ? "active" : ""} ${!resultado && tab.id !== "comparativa" ? "disabled" : ""}`}
+              onClick={() => (resultado || tab.id === "comparativa") && setTabActiva(tab.id)}
             >
               <span className="nav-icon">{tab.icon}</span>
               {tab.label}
