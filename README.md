@@ -1,4 +1,4 @@
-# Analizador Lingüístico — Stanford CoreNLP
+# Analizador Lingüístico — Stanford CoreNLP + spaCy
 
 Práctica 16 — Teoría de Autómatas y Computabilidad Avanzada  
 Universidad Nacional de Loja — FEIRNNR — 6to Ciclo
@@ -31,6 +31,8 @@ cd APE16_AT
 
 ### 2. Descargar Stanford CoreNLP
 
+Stanford CoreNLP es un servidor Java que corre de forma independiente. El backend Flask se comunica con él mediante HTTP en el puerto 9000.
+
 ```bash
 wget https://nlp.stanford.edu/software/stanford-corenlp-4.5.7.zip
 wget https://nlp.stanford.edu/software/stanford-corenlp-4.5.7-models-spanish.jar
@@ -39,6 +41,8 @@ mv stanford-corenlp-4.5.7-models-spanish.jar stanford-corenlp-4.5.7/
 ```
 
 ### 3. Crear entorno virtual e instalar dependencias Python
+
+El entorno virtual aísla las dependencias del proyecto. spaCy corre directamente dentro del proceso Python, a diferencia de CoreNLP que es un servidor externo.
 
 ```bash
 python3 -m venv venv
@@ -57,9 +61,136 @@ cd ..
 
 ---
 
+## Cómo funciona el sistema
+
+El sistema tiene tres capas que se comunican entre sí:
+
+```
+[React Frontend :3000]
+        |
+        | HTTP POST /analizar o /comparar
+        v
+[Flask Backend :5000]
+        |
+        |--- HTTP POST :9000 ---> [Stanford CoreNLP Server]
+        |
+        |--- Python directo ---> [spaCy es_core_news_sm]
+```
+
+### Flujo de una petición
+
+1. El usuario escribe una oración en el frontend y presiona **Analizar**
+2. React hace un `POST` a `http://localhost:5000/analizar` con `{ "oracion": "..." }`
+3. Flask recibe la petición y la pasa al caso de uso `AnalizarOracionUseCase`
+4. El caso de uso llama al `CoreNLPAdapter` que hace un `POST` a `http://localhost:9000`
+5. CoreNLP procesa la oración y retorna tokens, POS, lemas y dependencias en JSON
+6. El `ClasificadorAdapter` analiza el texto con reglas léxicas para detectar el conector
+7. Flask retorna el resultado completo al frontend
+8. React muestra los resultados en las tabs del sidebar
+
+Para la comparativa, el flujo es el mismo pero el endpoint `/comparar` ejecuta **ambos** CoreNLP y spaCy y retorna los dos resultados juntos.
+
+---
+
+## Arquitectura hexagonal
+
+El backend implementa arquitectura hexagonal (ports & adapters):
+
+```
+backend/
+├── domain/
+│   ├── models.py         # entidades: Token, Dependencia, Clasificacion, AnalisisOracion
+│   └── ports.py          # interfaces: AnalizadorNLPPort, ClasificadorPort
+├── application/
+│   └── analizar_oracion_use_case.py   # orquesta analizador + clasificador
+├── infrastructure/
+│   ├── corenlp_adapter.py      # implementa AnalizadorNLPPort con CoreNLP
+│   ├── spacy_adapter.py        # implementa AnalizadorNLPPort con spaCy
+│   └── clasificador_adapter.py # implementa ClasificadorPort con reglas léxicas
+└── api/
+    └── routes.py         # endpoints Flask que inyectan los adaptadores
+```
+
+Los adaptadores son intercambiables: el dominio no sabe si está usando CoreNLP o spaCy, solo conoce la interfaz `AnalizadorNLPPort`.
+
+---
+
+## Endpoints disponibles
+
+### POST /analizar
+
+Analiza una oración con Stanford CoreNLP.
+
+**Request:**
+```json
+{ "oracion": "María estudia porque mañana tiene un examen." }
+```
+
+**Response:**
+```json
+{
+  "oracion": "María estudia porque mañana tiene un examen.",
+  "tokens": [
+    { "word": "María", "pos": "PROPN", "lemma": "María" },
+    { "word": "estudia", "pos": "VERB", "lemma": "estudia" }
+  ],
+  "dependencias": [
+    { "dep": "ROOT", "governor": "ROOT", "dependent": "estudia" },
+    { "dep": "nsubj", "governor": "estudia", "dependent": "María" }
+  ],
+  "sujeto": "María",
+  "verbo": "estudia",
+  "objeto": "examen",
+  "clasificacion": {
+    "tipo": "Compuesta Subordinada",
+    "relacion": "Causal",
+    "conector": "porque"
+  },
+  "tiempo_ms": 9.01
+}
+```
+
+---
+
+### POST /comparar
+
+Analiza una oración con CoreNLP y spaCy simultáneamente y retorna ambos resultados.
+
+**Request:**
+```json
+{ "oracion": "Pedro llegó y Ana salió." }
+```
+
+**Response:**
+```json
+{
+  "oracion": "Pedro llegó y Ana salió.",
+  "corenlp": {
+    "tokens": [...],
+    "dependencias": [...],
+    "sujeto": "Ana",
+    "verbo": "llegó",
+    "objeto": "N/A",
+    "clasificacion": { "tipo": "Compuesta Coordinada", "relacion": "Copulativa", "conector": "y" },
+    "tiempo_ms": 26.49
+  },
+  "spacy": {
+    "tokens": [...],
+    "dependencias": [...],
+    "sujeto": "Ana",
+    "verbo": "llegó",
+    "objeto": "N/A",
+    "clasificacion": { "tipo": "Compuesta Coordinada", "relacion": "Copulativa", "conector": "y" },
+    "tiempo_ms": 4.07
+  }
+}
+```
+
+---
+
 ## Ejecución
 
-El proyecto requiere tres terminales abiertas simultáneamente.
+El proyecto requiere **tres terminales** abiertas simultáneamente.
 
 ### Terminal 1 — Servidor Stanford CoreNLP
 
@@ -75,6 +206,8 @@ Espera hasta ver:
 ```
 StanfordCoreNLPServer listening at /[0:0:0:0:0:0:0:0]:9000
 ```
+
+> ⚠️ CoreNLP requiere al menos 4GB de RAM disponibles. El parámetro `-mx4g` define el límite de memoria para la JVM.
 
 ### Terminal 2 — Backend Flask
 
@@ -100,42 +233,9 @@ Se abre automáticamente en: http://localhost:3000
 
 ---
 
-## Estructura del proyecto
+## Prueba rápida con curl
 
-```
-APE16_AT/
-├── backend/
-│   ├── app.py                            # punto de entrada Flask
-│   ├── domain/
-│   │   ├── models.py                     # entidades del dominio
-│   │   └── ports.py                      # puertos (interfaces)
-│   ├── application/
-│   │   └── analizar_oracion_use_case.py  # caso de uso principal
-│   ├── infrastructure/
-│   │   ├── corenlp_adapter.py            # adaptador Stanford CoreNLP
-│   │   ├── spacy_adapter.py              # adaptador spaCy
-│   │   └── clasificador_adapter.py       # clasificador semántico
-│   └── api/
-│       └── routes.py                     # endpoints REST
-├── frontend/
-│   └── src/
-│       ├── components/                   # componentes React
-│       ├── services/                     # servicios HTTP
-│       └── App.js                        # componente raíz
-├── stanford-corenlp-4.5.7/              # NO se sube al repo
-└── README.md
-```
-
----
-
-## Endpoints disponibles
-
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| POST | /analizar | Analiza una oración con CoreNLP |
-| POST | /comparar | Analiza con CoreNLP y spaCy simultáneamente |
-
-### Ejemplo de uso
+Verificar que el backend responde antes de abrir el frontend:
 
 ```bash
 curl -X POST http://localhost:5000/analizar \
@@ -143,19 +243,26 @@ curl -X POST http://localhost:5000/analizar \
   -d '{"oracion": "Pedro llegó y Ana salió."}'
 ```
 
+```bash
+curl -X POST http://localhost:5000/comparar \
+  -H "Content-Type: application/json" \
+  -d '{"oracion": "María estudia porque mañana tiene un examen."}'
+```
+
 ---
 
-## Prueba rápida
+## Oraciones de prueba
 
-Una vez levantados los tres servicios, abre http://localhost:3000 y escribe cualquiera de estas oraciones:
-
-- María estudia porque mañana tiene un examen.
-- Pedro llegó y Ana salió.
-- Aunque llueve iremos al parque.
-- Si estudias aprobarás.
-- Juan cocina mientras Ana limpia.
-
-Navega por las tabs del sidebar para ver el análisis léxico, sintáctico, árbol de dependencias y la comparativa entre spaCy y CoreNLP.
+| Oración | Tipo | Relación |
+|---------|------|----------|
+| María estudia porque mañana tiene un examen. | Compuesta Subordinada | Causal |
+| Pedro llegó y Ana salió. | Compuesta Coordinada | Copulativa |
+| Aunque llueve iremos al parque. | Compuesta Subordinada | Concesiva |
+| Si estudias aprobarás. | Compuesta Subordinada | Condicional |
+| Juan cocina mientras Ana limpia. | Compuesta Subordinada | Temporal |
+| Pedro compró un automóvil. | Simple | N/A |
+| Ana cocina la cena. | Simple | N/A |
+| Luis juega fútbol. | Simple | N/A |
 
 ---
 
